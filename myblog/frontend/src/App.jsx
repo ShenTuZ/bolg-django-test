@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Link, useNavigate } from "react-router-dom";
-import { getMe, logout as apiLogout, fetchCsrf } from "./api";
+import { getMe, clearToken } from "./api";
 import HomePage from "./pages/HomePage";
 import PostPage from "./pages/PostPage";
 import LoginPage from "./pages/LoginPage";
@@ -18,8 +18,8 @@ function Navbar({ user, onLogout }) {
               <span className="greeting">{user.username}</span>
               <button
                 className="btn-link"
-                onClick={async () => {
-                  await apiLogout();
+                onClick={() => {
+                  clearToken();
                   onLogout();
                   nav("/");
                 }}
@@ -44,7 +44,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchCsrf().then(() => getMe())
+    getMe()
       .then((data) => setUser(data))
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
@@ -59,25 +59,13 @@ export default function App() {
           path="*"
           element={
             <>
-              <Navbar
-                user={user}
-                onLogout={() => setUser(null)}
-              />
+              <Navbar user={user} onLogout={() => setUser(null)} />
               <main>
                 <Routes>
                   <Route path="/" element={<HomePage />} />
-                  <Route
-                    path="/post/:id"
-                    element={<PostPage user={user} />}
-                  />
-                  <Route
-                    path="/login"
-                    element={<LoginPage onLogin={(u) => setUser(u)} />}
-                  />
-                  <Route
-                    path="/register"
-                    element={<RegisterPage onLogin={(u) => setUser(u)} />}
-                  />
+                  <Route path="/post/:id" element={<PostPage user={user} />} />
+                  <Route path="/login" element={<LoginPage onLogin={(u) => setUser(u)} />} />
+                  <Route path="/register" element={<RegisterPage onLogin={(u) => setUser(u)} />} />
                 </Routes>
               </main>
             </>

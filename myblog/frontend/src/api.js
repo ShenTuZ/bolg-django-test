@@ -1,18 +1,24 @@
 const API_BASE = "/api";
 
-function getCSRFToken() {
-  const match = document.cookie.match(/csrftoken=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
+function getToken() {
+  return localStorage.getItem("jwt_token");
+}
+
+export function setToken(token) {
+  localStorage.setItem("jwt_token", token);
+}
+
+export function clearToken() {
+  localStorage.removeItem("jwt_token");
 }
 
 async function request(url, options = {}) {
   const { headers, ...rest } = options;
-  const isUnsafe = options.method && !["GET", "HEAD"].includes(options.method);
+  const token = getToken();
   const res = await fetch(`${API_BASE}${url}`, {
-    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(isUnsafe ? { "X-CSRFToken": getCSRFToken() } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
     ...rest,
@@ -42,6 +48,5 @@ export const register = (username, password) =>
     method: "POST",
     body: JSON.stringify({ username, password }),
   });
-export const logout = () => request("/logout/", { method: "POST" });
 export const getMe = () => request("/me/");
-export const fetchCsrf = () => request("/csrf/");
+export { getToken };

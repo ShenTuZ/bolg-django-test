@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { register } from "../api";
+import { register, setToken } from "../api";
 
 export default function RegisterPage({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -11,8 +11,9 @@ export default function RegisterPage({ onLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const user = await register(username, password);
-      onLogin(user);
+      const data = await register(username, password);
+      setToken(data.access);
+      onLogin({ username: data.username, is_staff: data.is_staff });
       nav("/");
     } catch (err) {
       setError(err.message);

@@ -1,28 +1,28 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from django.middleware.csrf import get_token
-from django.views.decorators.csrf import ensure_csrf_cookie
-from django.utils.decorators import method_decorator
+from django.contrib.auth import authenticate
+from django.core.cache import cache
+from rest_framework_simplejwt.tokens import AccessToken
 from .models import Post, Comment
 from .serializers import PostListSerializer, PostDetailSerializer, CommentSerializer
-
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-@ensure_csrf_cookie
-def get_csrf(request):
-    return Response({"csrf": get_token(request)})
+from .tasks import clear_post_cache, send_comment_notification
 
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def post_list(request):
+    """带 Redis 缓存的文章列表"""
+    data = cache.get("posts_list")
+    if data is not None:
+        return Response(data)
+
     posts = Post.objects.all()
     serializer = PostListSerializer(posts, many=True)
-    return Response(serializer.data)
+    data = serializer.data
+    cache.set("posts_list", data, 300)
+    return Response(data)
 
 
 @api_view(["GET"])
@@ -40,11 +40,14 @@ def add_comment(request, post_id):
     content = request.data.get("content", "").strip()
     if content:
         comment = Comment.objects.create(post=post, author=request.user, content=content)
+        clear_post_cache.delay()
+        send_comment_notification.delay(comment.id)
         return Response(CommentSerializer(comment).data, status=201)
     return Response({"error": "内容不能为空"}, status=400)
 
 
 @api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
 def delete_comment(request, comment_id):
     if not request.user.has_perm("blog.delete_comment"):
         return Response({"error": "没有权限"}, status=403)
@@ -56,18 +59,24 @@ def delete_comment(request, comment_id):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login_api(request):
+    """登录并返回 JWT token"""
     username = request.data.get("username", "").strip()
     password = request.data.get("password", "")
-    user = authenticate(request, username=username, password=password)
+    user = authenticate(username=username, password=password)
     if user is not None:
-        login(request, user)
-        return Response({"username": user.username, "is_staff": user.is_staff})
+        token = AccessToken.for_user(user)
+        return Response({
+            "access": str(token),
+            "username": user.username,
+            "is_staff": user.is_staff,
+        })
     return Response({"error": "用户名或密码错误"}, status=400)
 
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def register_api(request):
+    """注册并返回 JWT token"""
     username = request.data.get("username", "").strip()
     password = request.data.get("password", "")
     if not username or not password:
@@ -75,23 +84,19 @@ def register_api(request):
     if User.objects.filter(username=username).exists():
         return Response({"error": "用户名已存在"}, status=400)
     user = User.objects.create_user(username=username, password=password)
-    login(request, user)
-    return Response({"username": user.username}, status=201)
-
-
-@api_view(["POST"])
-def logout_api(request):
-    logout(request)
-    return Response({"ok": True})
+    token = AccessToken.for_user(user)
+    return Response({
+        "access": str(token),
+        "username": user.username,
+        "is_staff": user.is_staff,
+    }, status=201)
 
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
-@ensure_csrf_cookie
+@permission_classes([IsAuthenticated])
 def current_user(request):
-    if request.user.is_authenticated:
-        return Response({
-            "username": request.user.username,
-            "is_staff": request.user.is_staff,
-        })
-    return Response(None)
+    """从 JWT token 中获取用户信息"""
+    return Response({
+        "username": request.user.username,
+        "is_staff": request.user.is_staff,
+    })
